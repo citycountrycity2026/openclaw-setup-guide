@@ -211,7 +211,7 @@ If you’re using the key pair downloaded from AWS (.pem), you already have a pr
    - Assume IP: `3.120.xxx.xxx` (replace with your actual public IP).
 
    ```bash
-   ssh -i ~/.ssh/openclaw-key.pem ubuntu@3.120.xxx.xxx
+   ssh -i ~/.ssh/openclaw-key.pem ubuntu@YOUR_EC2_IP
    ```
 
    If prompted:
@@ -233,7 +233,7 @@ If you’re using the key pair downloaded from AWS (.pem), you already have a pr
    - Click **Save private key** → `openclaw-key.ppk`.
 
 2. **Configure PuTTY session**
-   - Host Name: `ubuntu@3.120.xxx.xxx`
+   - Host Name: `ubuntu@YOUR_EC2_IP`
    - Port: `22`
    - Connection type: SSH.
 
@@ -591,7 +591,7 @@ Internally, this is driven via tools like `sessions_spawn` and managed in the ga
      "telegram": {
        "configWrites": true,
        "dmPolicy": "allowlist",
-       "allowFrom": ["1167881152"],
+       "allowFrom": ["<your_telegram_user_id>"],
        "groupPolicy": "allowlist",
        "mediaMaxMb": 50,
        "accounts": {
