@@ -7,7 +7,20 @@
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-  <script>document.addEventListener('DOMContentLoaded', () => { hljs.highlightAll(); });</script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const srcEl = document.getElementById('md-source');
+      const targetEl = document.getElementById('md-rendered');
+      if (srcEl && targetEl && window.marked) {
+        const md = srcEl.textContent || srcEl.innerText || '';
+        targetEl.innerHTML = marked.parse(md);
+      }
+      if (window.hljs) {
+        hljs.highlightAll();
+      }
+    });
+  </script>
 </head>
 <body>
   <header class="site-header">
@@ -45,7 +58,8 @@
     </article>
 
     <article class="card markdown-body">
-      <pre><code class="language-markdown">
+      <div id="md-rendered"></div>
+      <script type="text/markdown" id="md-source">
 # OpenClaw Setup Guide (AWS, Models, Telegram, Gmail/Drive Integration)
 
 This document describes how to:
@@ -941,7 +955,7 @@ Once configured, OpenClaw (via `exec` and the GitHub skill) can:
 ---
 
 This guide captures the practical setup of OpenClaw on an AWS EC2 instance, including model configuration, channel integration, soul/persona customization, and deep integration with Gmail, Google Drive, and GitHub, plus operational commands and routing strategies to keep the system stable and cost-effective.
-      </code></pre>
+      </script>
     </article>
   </main>
 
