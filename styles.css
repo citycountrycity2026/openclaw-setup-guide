@@ -176,6 +176,50 @@ body {
   margin-top: 1.2rem;
 }
 
+/* Collapsible details styling */
+.markdown-body details {
+  background: rgba(15, 23, 42, 0.9);
+  border-radius: 0.7rem;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  padding: 0.65rem 0.85rem 0.65rem;
+  margin: 0.6rem 0 0.9rem;
+}
+
+.markdown-body details[open] {
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.8);
+}
+
+.markdown-body summary {
+  list-style: none;
+  cursor: pointer;
+  outline: none;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.markdown-body summary::-webkit-details-marker {
+  display: none;
+}
+
+.markdown-body summary strong {
+  font-size: 0.9rem;
+}
+
+.markdown-body summary::before {
+  content: "";
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: #6366f1;
+  box-shadow: 0 0 6px rgba(99, 102, 241, 0.9);
+  flex-shrink: 0;
+}
+
+.markdown-body details > *:not(summary) {
+  margin-top: 0.6rem;
+}
+
 .markdown-body pre {
   background: rgba(15, 23, 42, 0.95);
   border-radius: 0.6rem;
