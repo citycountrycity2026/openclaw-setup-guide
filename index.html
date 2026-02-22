@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenClaw Setup Guide</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script>document.addEventListener('DOMContentLoaded', () => { hljs.highlightAll(); });</script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <h1>OpenClaw Setup Guide</h1>
+      <p class="subtitle">AWS · Models · Telegram · Gmail · Drive · GitHub</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <article class="card">
+      <h2>Overview</h2>
+      <p>
+        This guide walks through setting up an OpenClaw agent on an AWS EC2 instance,
+        configuring models (OpenAI Codex, MiniMax, Kimi), integrating Telegram and WhatsApp,
+        defining the agent's "soul", and wiring up Gmail + Google Drive + GitHub for a
+        fully connected personal agent.
+      </p>
+      <div class="callout warning">
+        <strong>AWS Cost Warning</strong>
+        <p>
+          The <code>m7i-flex.large</code> instance type is <strong>not</strong> part of the AWS free tier.
+          It is pay-as-you-go. Set up budgets and alerts to avoid surprise bills.
+        </p>
+      </div>
+      <div class="callout info">
+        <strong>Model Access Required</strong>
+        <p>
+          OpenClaw is only truly usable once at least one model provider is authenticated
+          (e.g. OpenAI Codex via OAuth or an API key). Without a working model backend,
+          the agent cannot respond meaningfully.
+        </p>
+      </div>
+    </article>
+
+    <article class="card markdown-body">
+      <pre><code class="language-markdown">
+# OpenClaw Setup Guide (AWS, Models, Telegram, Gmail/Drive Integration)
+
+This document describes how to:
+
+- Provision an AWS EC2 machine for OpenClaw  
+- Set up SSH with public-key auth  
+- Install and run OpenClaw (gateway + dashboard + TUI)  
+- Configure models (OpenAI Codex, MiniMax, Kimi, GLM)  
+- Connect Telegram and WhatsApp  
+- Set up a "soul" (persona) and security rules  
+- Wire Google OAuth to send email via Gmail and upload/share files via Drive  
+- Set up GitHub access for coding workflows  
+- Use core OpenClaw commands (`status`, `doctor`, etc.) to debug issues  
+- Spawn multiple agents and route different tasks to different models
+
+Where appropriate, detailed steps are provided in collapsible sections.
+
+&gt; **Warning on AWS costs**  
+&gt; The `m7i-flex.large` instance type is **not** part of the AWS free tier. It is a good choice performance-wise, but it is pay-as-you-go.  
+&gt; To avoid surprise bills, configure AWS cost alerts and a hard budget limit (see the AWS Cost Management section below).
+
+&gt; **Important:** OpenClaw is only truly usable once at least one model provider is authenticated (e.g. OpenAI Codex via OAuth, or an API key). Without a working model backend, the agent cannot respond meaningfully.
+
+---
+
+## 1. AWS Setup (EC2 m7i-flex.large)
+
+### 1.1. Create an AWS account and configure cost protections
+
+&gt; **Recommended:** do this before launching any instances.
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Step-by-step: AWS account and cost guardrails&lt;/strong&gt;&lt;/summary&gt;
+
+1. **Create or log into an AWS account**
+   - Go to &lt;https://aws.amazon.com/&gt;
+   - Click **Sign In** → **Root user** or **Create a new AWS account**.
+   - Complete signup (billing info, phone verification).
+
+2. **Set a budget and alerts**
+   - Go to the **AWS Billing &amp; Cost Management** console.
+   - In the left sidebar, click **Budgets** → **Create budget**.
+   - Choose **Cost budget**.
+   - Set:
+     - **Period**: Monthly
+     - **Budgeted amount**: pick a sane upper bound (e.g. 20 USD).
+   - Configure **Alerts**:
+     - Alert when **actual cost** &gt; e.g. 50% and 80% of budget.
+     - Send alerts to your email.
+
+3. **Enable the “Cost Anomaly Detection” (optional but recommended)**
+   - In Billing, go to **Cost Anomaly Detection**.
+   - Create a monitor for “AWS services” with email notifications.
+
+4. **(Optional but important) Hard account limit**
+   - AWS doesn’t have a true hard kill switch, but you can:
+     - Set **AWS Free Tier usage alerts** in Billing preferences.
+     - Periodically review your **Cost Explorer**.
+   - If you want really hard limits, consider:
+     - Using prepaid or low-limit payment methods.
+     - Manually stopping EC2 instances when not in use.
+
+&lt;/details&gt;
+
+### 1.2. Launch an EC2 instance (Ubuntu, m7i-flex.large)
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Step-by-step: Launching m7i-flex.large Ubuntu instance&lt;/strong&gt;&lt;/summary&gt;
+
+1. **Open EC2 console**
+   - Go to &lt;https://console.aws.amazon.com/ec2&gt;.
+   - Make sure you’re in the desired **Region** (e.g. `eu-central-1`).
+
+2. **Launch instance**
+   - Click **Launch instance**.
+   - Name: e.g. `openclaw-main`.
+
+3. **Choose AMI (OS)**
+   - Under **Application and OS Images**, pick:
+     - **Ubuntu Server 22.04 LTS (64-bit x86)**
+
+4. **Instance type**
+   - Choose **`m7i-flex.large`**.
+     - 2 vCPUs, 8 GiB RAM (good for agent workloads).
+   - Note: this is **billable** (not free-tier).
+
+5. **Key pair (login)**
+   - Under **Key pair (login)**:
+     - If you don’t have one, click **Create new key pair**:
+       - Name: e.g. `openclaw-key`
+       - Type: RSA
+       - Format: `.pem` (if you’re on macOS/Linux) or `.ppk` (for PuTTY on Windows)
+     - Download and store the key **securely**.
+     - This is your SSH private key.
+
+6. **Network settings**
+   - Leave default VPC/subnet, but:
+     - Ensure **Auto-assign public IP** is enabled (so you can SSH).
+   - **Security group**:
+     - Allow **SSH (port 22)** from:
+       - Your IP only (recommended), or
+       - A small IP range you control.
+
+7. **Storage**
+   - Default: 20 GiB gp3 is fine.
+   - You can increase if you plan to store code/data.
+
+8. **Launch**
+   - Click **Launch instance**.
+   - Wait for the instance state to become **running**.
+
+9. **Get public IP**
+   - In the instance list, select your instance.
+   - Note the **Public IPv4 address** (e.g. `3.120.xxx.xxx`).
+
+&lt;/details&gt;
+
+---
+
+## 2. SSH Access with Public Key
+
+### 2.1. Preparing your SSH key locally
+
+If you’re using the key pair downloaded from AWS (.pem), you already have a private key; AWS automatically configured the public key on the instance for you.
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Step-by-step: SSH key permissions and connection (macOS/Linux)&lt;/strong&gt;&lt;/summary&gt;
+
+1. **Move the private key to ~/.ssh**
+   ```bash
+   mkdir -p ~/.ssh
+   mv /path/to/openclaw-key.pem ~/.ssh/
+   chmod 600 ~/.ssh/openclaw-key.pem
+   ```
+
+2. **Connect to your EC2 instance**
+   - Assume username: `ubuntu` (for Ubuntu AMIs).
+   - Assume IP: `3.120.xxx.xxx` (replace with your actual public IP).
+
+   ```bash
+   ssh -i ~/.ssh/openclaw-key.pem ubuntu@3.120.xxx.xxx
+   ```
+
+   If prompted:
+   - Type `yes` to accept the host fingerprint.
+
+3. **If connection fails**
+   - Check that the instance is **running**.
+   - Check security group allows SSH from your IP.
+   - Verify you’re using the right username (`ubuntu` for Ubuntu, `ec2-user` for Amazon Linux).
+
+&lt;/details&gt;
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Step-by-step: SSH from Windows using PuTTY&lt;/strong&gt;&lt;/summary&gt;
+
+1. **Convert .pem to .ppk (if needed)**
+   - Open PuTTYgen.
+   - Click **Load** → select your `.pem` file.
+   - Click **Save private key** → `openclaw-key.ppk`.
+
+2. **Configure PuTTY session**
+   - Host Name: `ubuntu@3.120.xxx.xxx`
+   - Port: `22`
+   - Connection type: SSH.
+
+3. **SSH key in PuTTY**
+   - In PuTTY, go to **Connection → SSH → Auth → Credentials**.
+   - Under *Private key file for authentication*, browse to `openclaw-key.ppk`.
+
+4. **Open connection**
+   - Click **Open**.
+   - Accept the host key if prompted.
+   - You should land in a shell as `ubuntu`.
+
+&lt;/details&gt;
+
+---
+
+## 3. Installing and Running OpenClaw on the Instance
+
+### 3.1. Basic system prep
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Step-by-step: System update and Node.js&lt;/strong&gt;&lt;/summary&gt;
+
+All commands run on the EC2 instance as `ubuntu`.
+
+1. **Update packages**
+   ```bash
+   sudo apt update
+   sudo apt upgrade -y
+   ```
+
+2. **Install Node.js (if not present)**
+   - OpenClaw runs on Node 20+.
+
+   ```bash
+   sudo apt install -y curl git
+   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+   sudo apt install -y nodejs
+   ```
+
+3. **Verify Node and npm**
+   ```bash
+   node -v
+   npm -v
+   ```
+
+&lt;/details&gt;
+
+### 3.2. Install OpenClaw CLI and gateway
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Step-by-step: Install OpenClaw globally&lt;/strong&gt;&lt;/summary&gt;
+
+1. **Install via npm**
+   ```bash
+   sudo npm install -g openclaw
+   ```
+
+2. **Verify installation**
+   ```bash
+   openclaw --version
+   openclaw help
+   ```
+
+3. **Initialize / run doctor once**
+   ```bash
+   openclaw doctor --non-interactive
+   ```
+
+   - This will:
+     - Create the config at `/home/ubuntu/.openclaw/openclaw.json`.
+     - Report any missing auth / providers, etc.
+
+4. **Start/Restart gateway**
+   ```bash
+   openclaw gateway start   # or restart
+   ```
+
+   - Gateway is the long-running daemon that:
+     - Talks to models (OpenAI, MiniMax, etc.).
+     - Manages channels (Telegram, WhatsApp).
+     - Hosts the Control UI (dashboard).
+
+&lt;/details&gt;
+
+### 3.3. Core OpenClaw commands: status &amp; doctor
+
+Two commands you will use frequently:
+
+- `openclaw status` – high-level session/gateway status.
+- `openclaw doctor --non-interactive` – detailed health check.
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;How to use &lt;code&gt;openclaw status&lt;/code&gt; and interpret it&lt;/strong&gt;&lt;/summary&gt;
+
+```bash
+openclaw status
+```
+
+Typical output includes:
+
+- OpenClaw version
+- Current time and timezone
+- Active model (e.g. `openai-codex/gpt-5.1`)
+- Token usage and cache stats
+- Session info (e.g. `agent:main:main`)
+
+Use it to quickly answer:
+
+- "Which model am I running on right now?"
+- "Is the agent session alive?"
+- "How much context am I using?"
+
+If the model is not what you expect:
+
+- Check `agents.defaults.model.primary` and `fallbacks` in `openclaw.json`.
+- Use `openclaw models status` to see the model/fallback chain.
+
+&lt;/details&gt;
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;How to use &lt;code&gt;openclaw doctor&lt;/code&gt; and fix problems&lt;/strong&gt;&lt;/summary&gt;
+
+```bash
+openclaw doctor --non-interactive
+```
+
+This runs a system health check and prints:
+
+- Security warnings (channels, bindings)
+- Skill/plugin status
+- Model/auth problems
+- Memory search configuration
+
+**Common issues and fixes:**
+
+1. **Missing model auth (e.g. OpenAI, MiniMax)**
+   - Doctor may say a provider is missing credentials or failing auth.
+   - Fix:
+     - Run:
+       ```bash
+       openclaw models auth login --provider openai-codex
+       ```
+       or follow provider-specific docs.
+     - Alternatively, set an API key in the environment (e.g. `OPENAI_API_KEY`) and rerun doctor.
+
+2. **Semantic memory without embeddings**
+   - Doctor may say: `Memory search is enabled but no embedding provider is configured.`
+   - Either:
+     - Configure an embedding provider (OpenAI, Gemini, local), _or_
+     - Disable memory search:
+       ```bash
+       openclaw config set agents.defaults.memorySearch.enabled false
+       ```
+
+3. **Channel misconfiguration (Telegram, etc.)**
+   - Doctor may flag missing/invalid bot tokens.
+   - Fix by re-running `openclaw configure --section channels.telegram` and pasting a valid token.
+
+4. **Gateway / bind / proxies**
+   - Warnings about `gateway.trusted_proxies` are usually safe if the gateway is bound to `loopback` and not exposed.
+
+Always re-run:
+
+```bash
+openclaw doctor --non-interactive
+```
+
+after making changes, to confirm the config is valid and issues are resolved.
+
+&lt;/details&gt;
+
+&gt; **Note:** Without a working model backend (e.g. OpenAI Codex via OAuth or an API key), `doctor` will continuously report model auth issues and the agent will not be able to generate responses. Fix model auth first.
+
+### 3.4. OpenClaw dashboard and TUI
+
+- **Gateway**: background service managing all agent work.
+- **Dashboard (Control UI)**: web UI for sessions, logs, models, channels.
+- **TUI**: terminal-based interface via `openclaw agent` or similar commands.
+
+Typically:
+
+- Control UI runs locally on the server bound to loopback.
+- You access it via SSH port forward (or via a reverse proxy if you expose it).
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Step-by-step: Access dashboard via SSH tunnel&lt;/strong&gt;&lt;/summary&gt;
+
+1. **Check gateway port**
+   - In `openclaw.json`, default:
+     - `"gateway": { "port": 18789, "bind": "loopback" }`
+
+2. **Set up SSH forwarding from your local machine**
+   ```bash
+   ssh -i ~/.ssh/openclaw-key.pem -L 18789:localhost:18789 ubuntu@3.120.xxx.xxx
+   ```
+
+3. **Open dashboard in browser**
+   - On your local machine:
+     - Visit: `http://localhost:18789/`
+   - You should see the OpenClaw Control UI (if enabled).
+
+&lt;/details&gt;
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Step-by-step: Using the TUI&lt;/strong&gt;&lt;/summary&gt;
+
+1. **Check agent status**
+   ```bash
+   openclaw agent status
+   ```
+
+2. **Open an agent session in TUI**
+   ```bash
+   openclaw agent
+   ```
+
+3. **Common commands**
+   - `openclaw models status` – see models + auth.
+   - `openclaw channels status` – channels like Telegram.
+   - `openclaw doctor --non-interactive` – health check.
+
+&lt;/details&gt;
+
+---
+
+## 4. Model Configuration (OpenAI Codex, MiniMax, Kimi, GLM, etc.)
+
+### 4.1. OpenAI Codex (primary brain)
+
+- **Recommendation**: use an **OpenAI Pro** account or equivalent that allows `openai-codex/gpt-5.1` (or current best model).
+- Auth mode: **OAuth via OpenClaw** (works well), or API key as a longer-term alternative.
+
+&gt; In this setup, an `openai-codex:default` profile with OAuth is used. This is smooth, but long-term you may want to switch to pay-as-you-go API keys for more predictable billing and independence from OAuth UI.
+
+&gt; **Note:** Without any authenticated model provider (OpenAI, MiniMax, Kimi, etc.), the agent cannot respond in a useful way. Make sure at least one provider is fully configured and passes `openclaw doctor` checks before relying on the system.
+
+### 4.2. MiniMax coding plan (cheap backup)
+
+- You can sign up for a **MiniMax coding/general plan** (~10 USD/month) for cheap tokens.
+- Config example:
+
+```json
+"agents": {
+  "defaults": {
+    "model": {
+      "primary": "openai-codex/gpt-5.1",
+      "fallbacks": [
+        "minimax-portal/MiniMax-M2.1",
+        "kimi/moonshot-v1-32k"
+      ]
+    },
+    "models": {
+      "minimax-portal/MiniMax-M2.1": { "alias": "minimax-m2.1" },
+      "minimax-portal/MiniMax-M2.5": { "alias": "minimax-m2.5" },
+      "openai-codex/gpt-5.1": {}
+    }
+  }
+}
+```
+
+### 4.3. Model routing by task to save tokens
+
+A simple routing strategy to control cost and performance:
+
+- **Default chat / light tasks**
+  - Use a cheaper model (e.g. `minimax-m2.1`) for:
+    - Short Q&amp;A
+    - Simple explanations
+    - Non-critical reasoning
+
+- **Heavy coding / complex reasoning**
+  - Use `openai-codex/gpt-5.1` (or best available) for:
+    - Multi-file refactors
+    - Complex debugging
+    - Architecture/design questions
+
+- **Large-context summarization / backup**
+  - Use Kimi (`moonshot-v1-32k`) or similar when you need large context windows.
+
+Practically, this can be achieved by:
+
+- Setting `openai-codex/gpt-5.1` as `primary` in `agents.defaults.model` and letting the agent explicitly switch to MiniMax or Kimi when appropriate **per sub-agent/task**, or
+- Making a cheaper model `primary` and reserving Codex only for explicit heavy-work agents.
+
+You can adjust `agents.defaults.model.primary` and `fallbacks` over time as you learn your usage patterns and cost profile.
+
+### 4.4. Kimi, GLM, other providers
+
+- **Kimi (Moonshot AI)**: configured via `models.providers.kimi` with `moonshot-v1-32k`.
+- **GLM and others**: see &lt;https://docs.openclaw.ai/providers/models&gt;.
+
+General pattern to add a provider:
+
+1. Add provider under `models.providers` with `baseUrl`, `apiKey`, `api`.
+2. Define one or more models under `"models": [ ... ]`.
+3. Reference them in `agents.defaults.model.primary` or `fallbacks` as `"provider/model-id"`.
+
+---
+
+## 5. Multiple Agents and Sub-Agents
+
+OpenClaw can run multiple agents side-by-side and spawn sub-agents for specific tasks.
+
+Concepts:
+
+- **Main agent**: the primary assistant you talk to (e.g. `agent:main:main`).
+- **Sub-agents**: additional agents launched to handle long-running or specialized tasks (e.g. coding, research) without blocking the main conversation.
+
+Patterns:
+
+- Use the main agent for:
+  - Direct chat
+  - High-level planning
+  - Short-form questions
+
+- Spawn sub-agents for:
+  - Long-running coding tasks (e.g. building a feature, refactoring a project)
+  - Background research
+  - Periodic maintenance tasks
+
+Internally, this is driven via tools like `sessions_spawn` and managed in the gateway. The important practical takeaway is:
+
+- You can have one "personality" (soul) for your main agent and different configurations (models, timeouts, workspaces) for specialized agents.
+- Sub-agents let you offload heavy work while keeping the main session responsive.
+
+---
+
+## 6. Telegram and WhatsApp Channels
+
+### 6.1. Telegram bot with allowlist
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Step-by-step: Telegram Bot + OpenClaw allowlist&lt;/strong&gt;&lt;/summary&gt;
+
+1. **Create a Telegram bot**
+   - In Telegram, talk to **@BotFather**.
+   - Send `/newbot`, follow prompts:
+     - Name: e.g. `OpenClaw Hal`
+     - Username: `@your_bot_name_bot`
+   - BotFather returns a **bot token**.
+
+2. **Configure Telegram in OpenClaw**
+   ```bash
+   openclaw configure --section channels.telegram
+   ```
+   - Set `botToken` to the token from BotFather.
+   - Set `dmPolicy` to `"allowlist"`.
+   - Set `allowFrom` to your Telegram user ID.
+
+   Example config shape:
+
+   ```json
+   "channels": {
+     "telegram": {
+       "configWrites": true,
+       "dmPolicy": "allowlist",
+       "allowFrom": ["1167881152"],
+       "groupPolicy": "allowlist",
+       "mediaMaxMb": 50,
+       "accounts": {
+         "main": {
+           "dmPolicy": "allowlist",
+           "botToken": "__OPENCLAW_REDACTED__",
+           "groupPolicy": "allowlist",
+           "streaming": true
+         }
+       }
+     }
+   }
+   ```
+
+3. **Find your Telegram user ID**
+   - Use a bot like `@userinfobot`.
+   - Add your ID to `allowFrom`.
+
+4. **Restart gateway**
+   ```bash
+   openclaw gateway restart
+   ```
+
+5. **Test**
+   - Message your bot from Telegram.
+   - You should receive a response via OpenClaw.
+
+&lt;/details&gt;
+
+### 6.2. WhatsApp
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Step-by-step: WhatsApp integration (high-level)&lt;/strong&gt;&lt;/summary&gt;
+
+1. **Review docs**
+   - &lt;https://docs.openclaw.ai/channels/whatsapp&gt;
+
+2. **Provision a WhatsApp connector**
+   - Either:
+     - WhatsApp Business Cloud API, _or_
+     - A bridge/bot that OpenClaw supports.
+
+3. **Configure `channels.whatsapp` in `openclaw.json`**
+   - Similar to Telegram:
+
+   ```json
+   "channels": {
+     "whatsapp": {
+       "configWrites": true,
+       "dmPolicy": "allowlist",
+       "allowFrom": ["+1234567890"],
+       "groupPolicy": "allowlist",
+       "accounts": {
+         "main": {
+           "dmPolicy": "allowlist",
+           "groupPolicy": "allowlist",
+           "streaming": true
+         }
+       }
+     }
+   }
+   ```
+
+4. **Restart and test**
+   - `openclaw gateway restart`
+   - Send a WhatsApp message to the configured number/account.
+
+&lt;/details&gt;
+
+---
+
+## 7. Soul, Persona, and Security
+
+### 7.1. Soul files (SOUL.md, USER.md, IDENTITY.md)
+
+In the OpenClaw workspace (e.g. `/home/ubuntu/.openclaw/workspace`), use:
+
+- `SOUL.md`: Agent personality, tone, behavior.
+- `USER.md`: Information about the primary user.
+- `IDENTITY.md`: Agent’s identity.
+
+Example:
+
+```markdown
+# SOUL.md - Who You Are
+
+- Direct, concise, minimal fluff
+- Slightly sarcastic but non-hostile
+- No emojis unless requested
+- Prioritize security and user autonomy
+```
+
+```markdown
+# USER.md - About Your Human
+
+- Name: Ben
+- What to call them: Ben
+- Timezone: ...
+- Notes: ...
+```
+
+```markdown
+# IDENTITY.md - Who Am I?
+
+- Name: Hal9000
+- Creature: AI assistant / ship computer
+- Vibe: Direct, a bit sarcastic, helpful, occasionally weird
+- Emoji: 🚨
+```
+
+### 7.2. Important security rules
+
+- **No secrets in chat**
+  - Never paste API keys, OAuth tokens, or other credentials into chat.
+- **Avoid secrets in `openclaw.json`**
+  - Prefer environment variables or secret files under `~/.secrets/`.
+- **SSH lockdown**
+  - Use key-based auth.
+  - Restrict SSH access to known IPs.
+- **Use least privilege**
+  - For Google scopes (Gmail/Drive/Calendar), only request what you need.
+  - For GitHub tokens, use minimal required scopes.
+- **Watch AWS usage**
+  - Stop or terminate instances when not needed.
+  - Keep an eye on budgets and Cost Explorer.
+
+---
+
+## 8. Gmail + Drive Integration (Mail + File Sharing)
+
+This section describes the steps used to let OpenClaw:
+
+- Send email via Gmail  
+- Upload files to Google Drive and share links
+
+&gt; **Recommendation:** Use a dedicated Gmail account for automation tasks.
+
+### 8.1. Google Cloud project + OAuth client
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Step-by-step: Gmail + Drive + Calendar OAuth client&lt;/strong&gt;&lt;/summary&gt;
+
+1. **Create/select project in Google Cloud Console**
+   - &lt;https://console.cloud.google.com/&gt;
+
+2. **Enable APIs**
+   - Gmail API
+   - Google Drive API
+   - Google Calendar API
+
+3. **OAuth consent screen**
+   - User type: External
+   - Scopes:
+     - `https://www.googleapis.com/auth/gmail.modify`
+     - `https://www.googleapis.com/auth/drive`
+     - `https://www.googleapis.com/auth/calendar`
+   - Add your Gmail account as a test user.
+
+4. **Create OAuth client (Desktop app)**
+   - Credentials → Create credentials → OAuth client ID → Desktop app.
+   - Save `client_id` and `client_secret`.
+
+&lt;/details&gt;
+
+### 8.2. Generate refresh token
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Step-by-step: Local OAuth flow for refresh token&lt;/strong&gt;&lt;/summary&gt;
+
+On your local machine:
+
+1. Create folder and venv:
+
+```bash
+mkdir -p ~/tmp-openclaw-google-oauth
+cd ~/tmp-openclaw-google-oauth
+python3 -m venv venv
+source venv/bin/activate
+pip install google-auth-oauthlib google-auth
+```
+
+2. `client_secret.json`:
+
+```bash
+nano client_secret.json
+```
+
+Paste:
+
+```json
+{
+  "installed": {
+    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+    "project_id": "your-project-id",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_secret": "YOUR_CLIENT_SECRET",
+    "redirect_uris": [
+      "urn:ietf:wg:oauth:2.0:oob",
+      "http://localhost"
+    ]
+  }
+}
+```
+
+3. `get_refresh_token.py`:
+
+```bash
+nano get_refresh_token.py
+```
+
+```python
+from __future__ import print_function
+import os
+from google_auth_oauthlib.flow import InstalledAppFlow
+
+SCOPES = [
+    'https://www.googleapis.com/auth/gmail.modify',
+    'https://www.googleapis.com/auth/drive',
+    'https://www.googleapis.com/auth/calendar',
+]
+
+def main():
+    flow = InstalledAppFlow.from_client_secrets_file(
+        'client_secret.json', SCOPES
+    )
+    creds = flow.run_local_server(port=0)
+    print("REFRESH_TOKEN:", creds.refresh_token)
+    print("CLIENT_ID:", creds.client_id)
+    print("CLIENT_SECRET:", creds.client_secret)
+
+if __name__ == '__main__':
+    main()
+```
+
+4. Run the script:
+
+```bash
+python get_refresh_token.py
+```
+
+- Browser opens, you log in to the dedicated Gmail account.
+- Approve scopes.
+- Script prints `REFRESH_TOKEN`, `CLIENT_ID`, `CLIENT_SECRET`.
+
+&lt;/details&gt;
+
+### 8.3. Store credentials on the server
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Step-by-step: ~/.secrets/google-oauth.json&lt;/strong&gt;&lt;/summary&gt;
+
+On the EC2 instance:
+
+1. Create secrets directory:
+
+```bash
+mkdir -p ~/.secrets
+chmod 700 ~/.secrets
+```
+
+2. Create the OAuth JSON:
+
+```bash
+nano ~/.secrets/google-oauth.json
+```
+
+Paste:
+
+```json
+{
+  "client_id": "CLIENT_ID_FROM_SCRIPT",
+  "client_secret": "CLIENT_SECRET_FROM_SCRIPT",
+  "refresh_token": "REFRESH_TOKEN_FROM_SCRIPT",
+  "scopes": [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/calendar"
+  ]
+}
+```
+
+3. Lock permissions:
+
+```bash
+chmod 600 ~/.secrets/google-oauth.json
+```
+
+&lt;/details&gt;
+
+### 8.4. Helpers: token exchange, Gmail send, Drive upload
+
+- **Token exchange**: `scripts/google_token.js` – exchanges refresh token for an access token.
+- **Gmail send**: `scripts/gmail_send.js` – sends email given `{to, subject, text}`.
+- **Drive upload**: `scripts/drive_upload.js` – uploads a file, sets `anyone with link` → reader, returns `webViewLink` and `webContentLink`.
+
+Example usage:
+
+**Send email:**
+
+```bash
+echo '{"to":"you@example.com","subject":"Test","text":"Hello from OpenClaw"}' \
+  | node scripts/gmail_send.js
+```
+
+**Upload file to Drive and get shareable link:**
+
+```bash
+node scripts/drive_upload.js /path/to/file
+```
+
+The Drive script sets `anyone` → `reader` and prints `webViewLink` and `webContentLink`.
+
+---
+
+## 9. GitHub for Coding Workflows
+
+For coding (repos, PRs, CI), using a dedicated GitHub account is advisable.
+
+&gt; **Advice:** If coding is a major use case, consider creating a new GitHub account specifically for this OpenClaw setup and linking it to the dedicated Gmail. This keeps automation separate from any personal GitHub account.
+
+### 9.1. New GitHub account (recommended)
+
+- Create at &lt;https://github.com&gt;.
+- Use the dedicated Gmail address if you want clean separation.
+
+### 9.2. GitHub CLI and access token
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Step-by-step: `gh` auth with PAT&lt;/strong&gt;&lt;/summary&gt;
+
+1. Install GitHub CLI:
+
+```bash
+sudo apt install -y gh
+```
+
+2. Generate PAT in GitHub web:
+   - Settings → Developer settings → Personal access tokens.
+   - Scopes:
+     - `repo`
+     - `workflow`
+     - `gist` (optional)
+
+3. Login `gh`:
+
+```bash
+gh auth login
+```
+
+- Host: `github.com`
+- Protocol: HTTPS
+- Paste PAT when prompted.
+
+4. Verify:
+
+```bash
+gh auth status
+```
+
+&lt;/details&gt;
+
+Once configured, OpenClaw (via `exec` and the GitHub skill) can:
+
+- Clone repos (`gh repo clone`)
+- Create repos (`gh repo create`)
+- Manage PRs (`gh pr create`, `gh pr view`, `gh pr merge`)
+- Manage issues (`gh issue create`, `gh issue list`)
+- Inspect CI runs (`gh run list`, `gh run view`).
+
+---
+
+This guide captures the practical setup of OpenClaw on an AWS EC2 instance, including model configuration, channel integration, soul/persona customization, and deep integration with Gmail, Google Drive, and GitHub, plus operational commands and routing strategies to keep the system stable and cost-effective.
+      </code></pre>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>OpenClaw Setup Guide · Static site generated from internal documentation.</p>
+    </div>
+  </footer>
+</body>
+</html>
