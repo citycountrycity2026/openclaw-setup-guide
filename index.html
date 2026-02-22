@@ -15,6 +15,28 @@
       if (srcEl && targetEl && window.marked) {
         const md = srcEl.textContent || srcEl.innerText || '';
         targetEl.innerHTML = marked.parse(md);
+
+        // Generate stable IDs for headings based on text
+        const headings = targetEl.querySelectorAll('h2, h3');
+        headings.forEach(h => {
+          const slug = (h.textContent || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+          if (slug) h.id = slug;
+        });
+
+        // Smooth-scroll sidebar links to the generated headings
+        document.querySelectorAll('.sidebar nav a[href^="#"]').forEach(a => {
+          a.addEventListener('click', (e) => {
+            e.preventDefault();
+            const targetId = a.getAttribute('href').slice(1);
+            const el = document.getElementById(targetId);
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          });
+        });
       }
       if (window.hljs) {
         hljs.highlightAll();
@@ -46,7 +68,7 @@
           <li><a href="#5-multiple-agents-and-sub-agents">Agents &amp; Sub-Agents</a></li>
           <li><a href="#6-telegram-and-whatsapp-channels">Telegram &amp; WhatsApp</a></li>
           <li><a href="#7-soul-persona-and-security">Soul &amp; Security</a></li>
-          <li><a href="#8-gmail--drive-integration-mail--file-sharing">Gmail &amp; Drive</a></li>
+          <li><a href="#8-gmail-drive-integration-mail-file-sharing">Gmail &amp; Drive</a></li>
           <li><a href="#9-github-for-coding-workflows">GitHub</a></li>
         </ul>
       </nav>
